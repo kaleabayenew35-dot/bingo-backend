@@ -81,7 +81,7 @@ function placeBet(stage, amount, payload) {
             if (!prow) {
               // no game row yet — create first game + first row
               db.get(
-                'SELECT MAX(CAST(game_id AS INTEGER)) AS maxId FROM games WHERE game_id GLOB "[0-9]*"',
+                "SELECT MAX(CAST(game_id AS INTEGER)) AS \"maxId\" FROM games WHERE game_id ~ '^[0-9]+$'",
                 [],
                 (maxErr, maxRow) => {
                   if (maxErr) return reject(maxErr);

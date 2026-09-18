@@ -21,8 +21,8 @@ function generateDraw(gameId, callback) {
 
   db.serialize(() => {
     // Migration-safe: add columns if they don't exist yet
-    db.run(`ALTER TABLE games ADD COLUMN draw_sequence TEXT`,           () => {});
-    db.run(`ALTER TABLE games ADD COLUMN draw_index INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE games ADD COLUMN IF NOT EXISTS draw_sequence TEXT`,           () => {});
+    db.run(`ALTER TABLE games ADD COLUMN IF NOT EXISTS draw_index INTEGER DEFAULT 0`, () => {});
 
     db.run(
       `UPDATE games SET draw_sequence = ?, draw_index = 0 WHERE game_id = ?`,

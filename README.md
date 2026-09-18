@@ -1,12 +1,13 @@
 # Bingo Backend
 
-Simple Express backend with SQLite for the Bingo app.
+Express backend with PostgreSQL for the Bingo app.
 
 ## Setup
 
-1. Open a terminal in `backend`
-2. Run `npm install`
-3. Run `npm start` or `npm run dev`
+1. Open a terminal in `bingo_backend`
+2. Set `DATABASE_URL` to your PostgreSQL connection string.
+3. Run `npm install`
+4. Run `npm start` or `npm run dev`
 
 ## API Endpoints
 
