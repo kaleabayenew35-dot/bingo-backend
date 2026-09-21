@@ -1,6 +1,7 @@
 const db = require('../config/database');
 
 const validAmounts = [10, 20, 30, 50, 100, 200];
+const { canonicalGameId } = require('../config/amounts');
 
 function listPlayers(callback) {
   db.all('SELECT * FROM players ORDER BY created_at DESC', callback);

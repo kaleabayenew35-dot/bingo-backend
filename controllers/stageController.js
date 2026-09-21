@@ -4,7 +4,7 @@ async function getAmountTable(req, res, next) {
   const { amount } = req.params;
   try {
     const rows = await amountService.getAll(amount);
-    res.json({ table: amountService.tableNameFor(amount), rows });
+    res.json({ table: amountService.tableNameFor(amount), amount: Number(amount), rows });
   } catch (err) {
     next(err);
   }

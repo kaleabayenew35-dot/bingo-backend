@@ -26,6 +26,12 @@ function prefixForAmount(value) {
 function gameIdFor(amount, sequence) {
   return `${prefixForAmount(amount)}${Number(sequence)}`;
 }
+function canonicalGameId(gameId, amount) {
+  const value = String(gameId || '').trim().toUpperCase();
+  if (/^[A-F]\d+$/.test(value)) return value;
+  const sequence = value.replace(/\D/g, '');
+  return sequence ? gameIdFor(amount, sequence) : value;
+}
 
 module.exports = {
   AMOUNTS,
@@ -34,4 +40,5 @@ module.exports = {
   tableNameForAmount,
   prefixForAmount,
   gameIdFor,
+  canonicalGameId,
 };

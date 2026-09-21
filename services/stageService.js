@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { normalizeAmount, tableNameForAmount, prefixForAmount } = require('../config/amounts');
+const { normalizeAmount, tableNameForAmount, prefixForAmount, canonicalGameId } = require('../config/amounts');
 
 function tableNameFor(amount) {
   return tableNameForAmount(amount);
@@ -16,7 +17,10 @@ function getAll(amount) {
     const sql = `SELECT * FROM ${t} ORDER BY created_at DESC`;
     db.all(sql, [], (err, rows) => {
       if (err) return reject(err);
-      resolve(rows);
+      resolve(rows.map((row) => ({
+        ...row,
+        game_id: canonicalGameId(row.game_id, amount),
+      })));
     });
   });
 }
