@@ -70,7 +70,7 @@ function getPlayerHistory(phone, callback) {
               if (entryPhone !== phone) return;
               const numbers = numStr.split('|').map(Number).filter(Boolean);
               results.push({
-                gameId: row.game_id,
+                gameId: canonicalGameId(row.game_id, a),
                 amount: a,
                 numbers,
                 username: entryUsername,

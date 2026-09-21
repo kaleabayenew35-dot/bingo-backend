@@ -1,5 +1,4 @@
 const db = require('../config/database');
-const { normalizeAmount, tableNameForAmount, prefixForAmount } = require('../config/amounts');
 const { normalizeAmount, tableNameForAmount, prefixForAmount, canonicalGameId } = require('../config/amounts');
 
 function tableNameFor(amount) {
