@@ -135,6 +135,9 @@ for (const amount of AMOUNTS) {
       FOREIGN KEY (winner_id) REFERENCES players(user_id) ON DELETE SET NULL
     )
   `);
+  schemaStatements.push(
+    `CREATE UNIQUE INDEX IF NOT EXISTS amount_${amount}_game_id_unique ON amount_${amount}(game_id)`
+  );
 }
 
 schemaStatements.push('ALTER TABLE games DROP COLUMN IF EXISTS stage');
