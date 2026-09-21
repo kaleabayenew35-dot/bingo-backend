@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: bingo-backend
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DATABASE_URL
+        sync: false
+      - key: SYSTEM_BACKEND_URL
+        value: https://system-backend-1u5m.onrender.com
+      - key: SYSTEM_BACKEND_API_URL
+        value: https://system-backend-1u5m.onrender.com/api
+      - key: FRONTEND_URL
+        value: https://bingo-i1br.onrender.com
+      - key: CORS_ORIGINS
+        value: https://bingo-i1br.onrender.com,https://system-admin-iou9.onrender.com,https://system-backend-1u5m.onrender.com
