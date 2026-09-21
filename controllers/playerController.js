@@ -2,8 +2,8 @@ const playerService = require('../services/playerService');
 
 async function syncPlayer(req, res) {
   const { launch, username, phone, balance } = req.body || {};
-  if (!launch || !phone) {
-    return res.status(400).json({ error: 'launch and phone are required' });
+  if (!launch) {
+    return res.status(400).json({ error: 'launch is required' });
   }
 
   try {
@@ -19,7 +19,7 @@ async function syncPlayer(req, res) {
       return res.status(401).json({ error: data.reason || 'Invalid launch token' });
     }
 
-    if (data.user.phone !== phone) {
+    if (phone && data.user.phone !== phone) {
       return res.status(401).json({ error: 'Launch user does not match phone' });
     }
 
