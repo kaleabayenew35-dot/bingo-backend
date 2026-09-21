@@ -129,12 +129,25 @@ async function placeBet(req, res, next) {
     if (serverBalance != null) newBalance = serverBalance;
 
     // ── 4. Save bet in bingo DB ───────────────────────────────────────────
-    const result = await amountService.placeBet(betAmount, {
-      phone: verifiedPhone,
-      username: verifiedUsername,
-      balance: newBalance,
-      numbers,
-    });
+    let result;
+    try {
+      result = await amountService.placeBet(betAmount, {
+        phone: verifiedPhone,
+        username: verifiedUsername,
+        balance: newBalance,
+        numbers,
+      });
+    } catch (dbErr) {
+      // If number already taken, refund the deducted amount and return 409
+      if (dbErr.code === 'NUMBER_TAKEN') {
+        await systemBalanceAction('refund', verifiedPhone, betAmount).catch(() => {});
+        return res.status(409).json({
+          error: dbErr.message,
+          conflict: dbErr.conflict || [],
+        });
+      }
+      throw dbErr; // re-throw other DB errors
+    }
 
     // ── 5. Respond ────────────────────────────────────────────────────────
     return res.json({

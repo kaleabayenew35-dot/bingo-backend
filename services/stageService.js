@@ -110,6 +110,25 @@ function placeBet(amount, payload) {
           db.get(`SELECT * FROM ${t} ORDER BY id DESC LIMIT 1`, [], (err2, prow) => {
             if (err2) return reject(err2);
 
+            // ── Uniqueness check: no number may be taken by any player ────────
+            if (prow && prow.mark) {
+              const takenNumbers = [];
+              prow.mark.split(',').forEach((entry) => {
+                const colonIdx = entry.indexOf(':');
+                if (colonIdx === -1) return;
+                entry.slice(colonIdx + 1).split('|').map(Number).filter(Boolean).forEach((n) => {
+                  if (!takenNumbers.includes(n)) takenNumbers.push(n);
+                });
+              });
+              const conflict = numbers.filter((n) => takenNumbers.includes(n));
+              if (conflict.length > 0) {
+                return reject(Object.assign(
+                  new Error(`Number${conflict.length > 1 ? 's' : ''} ${conflict.join(', ')} already taken`),
+                  { code: 'NUMBER_TAKEN', conflict }
+                ));
+              }
+            }
+
             // build new mark entry for this bet: "username|phone:num1|num2"
             const markEntry = `${username || uid}|${uid}:${numbers.join('|')}`;
 
