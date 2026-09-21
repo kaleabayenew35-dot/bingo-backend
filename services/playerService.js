@@ -53,7 +53,13 @@ function getPlayerHistory(phone, callback) {
 
   validAmounts.forEach((a) => {
       const table = `amount_${a}`;
-      db.all(`SELECT game_id, mark, created_at, updated_at FROM ${table} ORDER BY id DESC`, [], (err, rows) => {
+      db.all(`
+        SELECT a.game_id, a.mark, a.payout, a.winner_id, a.created_at, a.updated_at,
+               g.status AS game_status
+        FROM ${table} a
+        LEFT JOIN games g ON g.game_id = a.game_id
+        ORDER BY a.id DESC
+      `, [], (err, rows) => {
         completed += 1;
         if (!err && rows) {
           rows.forEach((row) => {
@@ -69,11 +75,16 @@ function getPlayerHistory(phone, callback) {
               const entryUsername = pipeIdx !== -1 ? beforeColon.slice(0, pipeIdx) : beforeColon;
               if (entryPhone !== phone) return;
               const numbers = numStr.split('|').map(Number).filter(Boolean);
+              const hasWinner = Boolean(row.winner_id);
+              const isWinner = hasWinner && row.winner_id === entryPhone;
+              const isComplete = row.game_status === 'completed';
               results.push({
                 gameId: canonicalGameId(row.game_id, a),
                 amount: a,
                 numbers,
                 username: entryUsername,
+                status: isComplete && hasWinner ? (isWinner ? 'win' : 'lose') : 'pending',
+                payout: isWinner ? Number(row.payout || 0) : 0,
                 placedAt: row.updated_at || row.created_at,
               });
             });
