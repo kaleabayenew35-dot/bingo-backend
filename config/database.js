@@ -43,8 +43,10 @@ function addReturningId(sql) {
 
 async function query(sql, params = [], { returningId = false } = {}) {
   let statement = translateParams(sql);
-  if (returningId) statement = addReturningId(statement);
+  // addConflictHandling must run BEFORE addReturningId so the order is:
+  //   INSERT INTO ... ON CONFLICT DO NOTHING RETURNING id
   statement = addConflictHandling(statement);
+  if (returningId) statement = addReturningId(statement);
   return pool.query(statement, params);
 }
 
