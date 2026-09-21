@@ -6,10 +6,48 @@ const SYSTEM_BACKEND_URL = (
   'https://system-backend-1u5m.onrender.com'
 ).replace(/\/$/, '');
 
+// The bingo game token registered in the system backend game_tokens table
+const BINGO_GAME_TOKEN = process.env.SYSTEM_BACKEND_TOKEN || '';
+
 function systemApiBase() {
   return SYSTEM_BACKEND_URL.endsWith('/api')
     ? SYSTEM_BACKEND_URL
     : `${SYSTEM_BACKEND_URL}/api`;
+}
+
+/**
+ * Call POST /api/game-api/game-action on the system backend.
+ * action: 'deduct' (bet placed) | 'refund' (bet cancelled)
+ * Returns the new balance, or null if the call fails.
+ */
+async function systemBalanceAction(action, phone, amount) {
+  if (!BINGO_GAME_TOKEN) {
+    console.warn('[bingo] SYSTEM_BACKEND_TOKEN not set — skipping balance action');
+    return null;
+  }
+  try {
+    const res = await fetch(`${systemApiBase()}/game-api/game-action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token:  BINGO_GAME_TOKEN,
+        action,           // 'deduct' or 'refund'
+        phone,
+        amount: Number(amount),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      console.warn(`[bingo] game-action/${action} returned ${res.status}:`, data);
+      return null;
+    }
+    // Returns { ok: true, balance: number } or { ok: true, data: { balance } }
+    const newBalance = data.balance ?? data.data?.balance ?? null;
+    return newBalance != null ? Number(newBalance) : null;
+  } catch (err) {
+    console.warn(`[bingo] game-action/${action} failed:`, err.message);
+    return null;
+  }
 }
 
 async function getAmountTable(req, res, next) {
@@ -85,36 +123,10 @@ async function placeBet(req, res, next) {
     }
 
     // ── 3. Deduct balance on system backend ───────────────────────────────
-    let newBalance = liveBalance - betAmount;
-    const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
-
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (systemToken) headers['x-api-token'] = systemToken;
-
-      // POST /api/bingo/adjust-balance  { phone, amount: -betAmount }
-      const deductRes = await fetch(
-        `${systemApiBase()}/bingo/adjust-balance`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ phone: verifiedPhone, amount: -betAmount }),
-        }
-      );
-
-      if (deductRes.ok) {
-        const deductData = await deductRes.json();
-        // returns { ok: true, data: { phone, balance } }
-        const serverBalance = deductData.data?.balance ?? null;
-        if (serverBalance != null) newBalance = Number(serverBalance);
-      } else {
-        const errText = await deductRes.text();
-        console.warn(`[placeBet] Deduct returned ${deductRes.status}: ${errText}`);
-      }
-    } catch (deductErr) {
-      console.warn('[placeBet] System backend deduct failed:', deductErr.message);
-      // proceed with optimistic balance — bet is still saved
-    }
+    // POST /api/game-api/game-action { action:'deduct', phone, amount, token }
+    let newBalance = liveBalance - betAmount; // optimistic fallback
+    const serverBalance = await systemBalanceAction('deduct', verifiedPhone, betAmount);
+    if (serverBalance != null) newBalance = serverBalance;
 
     // ── 4. Save bet in bingo DB ───────────────────────────────────────────
     const result = await amountService.placeBet(betAmount, {
@@ -186,35 +198,9 @@ async function cancelBet(req, res, next) {
     const refundAmount = (result.removedCount || 1) * betAmount;
 
     // ── 3. Refund balance on system backend ────────────────────────────────
-    let newBalance = null;
-    const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
-
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (systemToken) headers['x-api-token'] = systemToken;
-
-      // POST /api/bingo/adjust-balance  { phone, amount: +refundAmount }
-      const refundRes = await fetch(
-        `${systemApiBase()}/bingo/adjust-balance`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ phone: verifiedPhone, amount: refundAmount }),
-        }
-      );
-
-      if (refundRes.ok) {
-        const refundData = await refundRes.json();
-        // returns { ok: true, data: { phone, balance } }
-        const serverBalance = refundData.data?.balance ?? null;
-        if (serverBalance != null) newBalance = Number(serverBalance);
-      } else {
-        const errBody = await refundRes.text();
-        console.warn(`[cancelBet] Refund returned ${refundRes.status}: ${errBody}`);
-      }
-    } catch (refundErr) {
-      console.warn('[cancelBet] System backend refund failed:', refundErr.message);
-    }
+    // POST /api/game-api/game-action { action:'refund', phone, amount, token }
+    const serverBalance = await systemBalanceAction('refund', verifiedPhone, refundAmount);
+    let newBalance = serverBalance; // null if system backend unreachable
 
     // ── 4. Sync local player balance ────────────────────────────────────────
     if (newBalance != null) {
