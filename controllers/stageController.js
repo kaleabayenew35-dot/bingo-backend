@@ -87,25 +87,25 @@ async function placeBet(req, res, next) {
     // ── 3. Deduct balance on system backend ───────────────────────────────
     let newBalance = liveBalance - betAmount;
     const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
-    const playerId = `ph_${verifiedPhone.replace(/^\+/, '')}`;
 
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (systemToken) headers['x-api-token'] = systemToken;
 
+      // POST /api/bingo/adjust-balance  { phone, amount: -betAmount }
       const deductRes = await fetch(
-        `${systemApiBase()}/players/${encodeURIComponent(playerId)}/balance`,
+        `${systemApiBase()}/bingo/adjust-balance`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers,
-          body: JSON.stringify({ amount: -betAmount }), // negative = deduct
+          body: JSON.stringify({ phone: verifiedPhone, amount: -betAmount }),
         }
       );
 
       if (deductRes.ok) {
         const deductData = await deductRes.json();
-        // system backend wraps in { ok: true, data: { balance, ... } }
-        const serverBalance = deductData.data?.balance ?? deductData.balance ?? null;
+        // returns { ok: true, data: { phone, balance } }
+        const serverBalance = deductData.data?.balance ?? null;
         if (serverBalance != null) newBalance = Number(serverBalance);
       } else {
         const errText = await deductRes.text();
@@ -188,25 +188,25 @@ async function cancelBet(req, res, next) {
     // ── 3. Refund balance on system backend ────────────────────────────────
     let newBalance = null;
     const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
-    const playerId = `ph_${verifiedPhone.replace(/^\+/, '')}`;
 
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (systemToken) headers['x-api-token'] = systemToken;
 
+      // POST /api/bingo/adjust-balance  { phone, amount: +refundAmount }
       const refundRes = await fetch(
-        `${systemApiBase()}/players/${encodeURIComponent(playerId)}/balance`,
+        `${systemApiBase()}/bingo/adjust-balance`,
         {
-          method: 'PATCH',
+          method: 'POST',
           headers,
-          body: JSON.stringify({ amount: refundAmount }), // positive = credit back
+          body: JSON.stringify({ phone: verifiedPhone, amount: refundAmount }),
         }
       );
 
       if (refundRes.ok) {
         const refundData = await refundRes.json();
-        // system backend wraps in { ok: true, data: { balance, ... } }
-        const serverBalance = refundData.data?.balance ?? refundData.balance ?? null;
+        // returns { ok: true, data: { phone, balance } }
+        const serverBalance = refundData.data?.balance ?? null;
         if (serverBalance != null) newBalance = Number(serverBalance);
       } else {
         const errBody = await refundRes.text();
