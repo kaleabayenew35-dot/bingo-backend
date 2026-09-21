@@ -24,20 +24,25 @@ app.use('/api/games', gameRoutes);
 app.use('/api/bets', betRoutes);
 app.use('/api/players', playerRoutes);
 app.use('/api/amount', amountRoutes);
-// Legacy URL compatibility for older cached Bingo frontends. The stage segment
-// is ignored; all requests resolve to the amount-only implementation.
-app.use('/api/stage/:stage/amount', amountRoutes);
 app.use('/api/draw', drawRoutes);
 
-// GET /api/timers — all 18 timers at once
+// GET /api/timers — all amount timers at once
 app.get('/api/timers', timerController.getAllTimers);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Bingo backend is running' });
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', service: 'bingo-backend', amounts: [10, 20, 30, 50, 100, 200] });
+});
+
 app.use(errorHandler);
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server listening on http://0.0.0.0:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+module.exports = app;

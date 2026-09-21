@@ -1,14 +1,8 @@
 const db = require('../config/database');
-
-const validAmounts = new Set([10, 20, 30, 50, 100, 200]);
-const amountPrefixes = { 10: 'A', 20: 'B', 30: 'C', 50: 'D', 100: 'E', 200: 'F' };
+const { normalizeAmount, tableNameForAmount, prefixForAmount } = require('../config/amounts');
 
 function tableNameFor(amount) {
-  const a = Number(amount);
-  if (!validAmounts.has(a)) {
-    throw new Error('Invalid amount');
-  }
-  return `amount_${a}`;
+  return tableNameForAmount(amount);
 }
 
 function getAll(amount) {
@@ -37,6 +31,7 @@ function placeBet(amount, payload) {
     }
 
     const { phone, username, balance, numbers } = payload;
+    const normalizedAmount = normalizeAmount(amount);
     if (!phone || !numbers || !Array.isArray(numbers) || numbers.length === 0) {
       return reject(new Error('Missing required fields'));
     }
@@ -79,7 +74,7 @@ function placeBet(amount, payload) {
 
             if (!prow) {
               // no game row yet — create first game + first row
-              const prefix = amountPrefixes[Number(amount)];
+              const prefix = prefixForAmount(normalizedAmount);
               db.get(
                 `SELECT MAX(CAST(SUBSTRING(game_id FROM 2) AS INTEGER)) AS "maxId"
                  FROM games WHERE game_id ~ '^${prefix}[0-9]+$'`,
@@ -90,7 +85,7 @@ function placeBet(amount, payload) {
                   const gameId = `${prefix}${nextId}`;
                   db.run(
                     'INSERT OR IGNORE INTO games (game_id, amount, players, status) VALUES (?, ?, ?, ?)',
-                    [gameId, Number(amount), 1, 'active'],
+                    [gameId, normalizedAmount, 1, 'active'],
                     function (gErr) {
                       if (gErr) return reject(gErr);
                       db.run(

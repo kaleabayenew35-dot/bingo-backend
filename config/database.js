@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 require('dotenv').config();
+const { AMOUNTS, PREFIX_BY_AMOUNT } = require('./amounts');
 
 const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
 if (process.env.NODE_ENV === 'production' && (!configuredDatabaseUrl || configuredDatabaseUrl.endsWith('.db'))) {
@@ -116,7 +117,7 @@ const schemaStatements = [
   )`,
 ];
 
-for (const amount of [10, 20, 30, 50, 100, 200]) {
+for (const amount of AMOUNTS) {
   schemaStatements.push(`
     CREATE TABLE IF NOT EXISTS amount_${amount} (
       id SERIAL PRIMARY KEY,
@@ -138,21 +139,14 @@ for (const amount of [10, 20, 30, 50, 100, 200]) {
 
 schemaStatements.push('ALTER TABLE games DROP COLUMN IF EXISTS stage');
 for (const stage of [1, 2, 3]) {
-  for (const amount of [10, 20, 30, 50, 100, 200]) {
+  for (const amount of AMOUNTS) {
     schemaStatements.push(`DROP TABLE IF EXISTS stage${stage}_${amount} CASCADE`);
   }
 }
 
 async function seedInitialRounds() {
-  const rounds = [
-    ['A', 10],
-    ['B', 20],
-    ['C', 30],
-    ['D', 50],
-    ['E', 100],
-    ['F', 200],
-  ];
-  for (const [prefix, amount] of rounds) {
+  for (const amount of AMOUNTS) {
+    const prefix = PREFIX_BY_AMOUNT[amount];
     const gameId = `${prefix}1`;
     await query(
       `INSERT INTO games (game_id, amount, players, status)

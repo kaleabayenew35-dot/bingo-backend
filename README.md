@@ -1,5 +1,17 @@
 # Bingo Backend
 
+The Bingo API is amount-only. Supported amounts are `10`, `20`, `30`, `50`, `100`, and `200`.
+
+Game IDs use amount-specific prefixes: `A` for 10, `B` for 20, `C` for 30, `D` for 50, `E` for 100, and `F` for 200.
+
+Public round endpoints:
+
+- `GET /api/amount/:amount`
+- `GET /api/amount/:amount/timer`
+- `POST /api/amount/:amount/bet`
+- `POST /api/amount/:amount/cancel`
+- `GET /api/health`
+
 Express backend with PostgreSQL for the Bingo app.
 
 ## Setup

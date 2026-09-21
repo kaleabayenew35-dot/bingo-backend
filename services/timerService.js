@@ -7,7 +7,7 @@
  * All amounts use the same round duration.
  */
 
-const validAmounts = [10, 20, 30, 50, 100, 200];
+const { AMOUNTS, normalizeAmount } = require('../config/amounts');
 
 // Map key: amount value: { amount, duration, endsAt (ms epoch) }
 const timers = new Map();
@@ -17,7 +17,7 @@ function timerKey(amount) {
 }
 
 function initTimers() {
-  validAmounts.forEach((a) => {
+  AMOUNTS.forEach((a) => {
     const duration = 60;
     const endsAt = Date.now() + duration * 1000;
     timers.set(timerKey(a), { amount: a, duration, endsAt });
@@ -42,7 +42,8 @@ function initTimers() {
  * @returns {{ amount, duration, remaining, endsAt }}
  */
 function getTimer(amount) {
-  const a = Number(amount);
+  let a;
+  try { a = normalizeAmount(amount); } catch { return null; }
   const key = timerKey(a);
   const t = timers.get(key);
   if (!t) return null;

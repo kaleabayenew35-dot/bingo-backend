@@ -1,13 +1,16 @@
 const db = require('../config/database');
-
-const amountPrefixes = { 10: 'A', 20: 'B', 30: 'C', 50: 'D', 100: 'E', 200: 'F' };
+const { normalizeAmount, prefixForAmount } = require('../config/amounts');
 
 function createNextRound(gameId, callback) {
   db.get('SELECT amount FROM games WHERE game_id = ?', [gameId], (gameError, game) => {
     if (gameError) return callback(gameError);
-    const amount = Number(game?.amount);
-    const prefix = amountPrefixes[amount];
-    if (!prefix) return callback(new Error('Cannot create next round for invalid amount'));
+    let amount;
+    try {
+      amount = normalizeAmount(game?.amount);
+    } catch (error) {
+      return callback(error);
+    }
+    const prefix = prefixForAmount(amount);
 
     const table = `amount_${amount}`;
     db.get(
