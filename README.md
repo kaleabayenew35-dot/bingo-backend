@@ -14,7 +14,7 @@ Express backend with PostgreSQL for the Bingo app.
 - `GET /api/games` - list games
 - `GET /api/games/:gameId` - get a game
 - `POST /api/games` - create a game
-- `PUT /api/games/:gameId` - update game stage/amount/players/status
+- `PUT /api/games/:gameId` - update game amount/players/status
 - `POST /api/games/:gameId/bets` - place a bet
 - `GET /api/games/:gameId/bets` - list bets for a game
 - `GET /api/bets` - list all bets

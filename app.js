@@ -4,7 +4,7 @@ const cors = require('cors');
 const gameRoutes = require('./routes/gameRoutes');
 const betRoutes = require('./routes/betRoutes');
 const playerRoutes = require('./routes/playerRoutes');
-const stageRoutes = require('./routes/stageRoutes');
+const amountRoutes = require('./routes/stageRoutes');
 const drawRoutes = require('./routes/drawRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const db = require('./config/database');
@@ -17,13 +17,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Start all 18 stage/amount timers
+// Start one timer for each supported bet amount.
 initTimers();
 
 app.use('/api/games', gameRoutes);
 app.use('/api/bets', betRoutes);
 app.use('/api/players', playerRoutes);
-app.use('/api/stage', stageRoutes);
+app.use('/api/amount', amountRoutes);
 app.use('/api/draw', drawRoutes);
 
 // GET /api/timers — all 18 timers at once

@@ -1,7 +1,6 @@
 const db = require('../config/database');
 
 const validAmounts = [10, 20, 30, 50, 100, 200];
-const validStages  = [1, 2, 3];
 
 function listPlayers(callback) {
   db.all('SELECT * FROM players ORDER BY created_at DESC', callback);
@@ -42,18 +41,17 @@ function upsertPlayer({ userId, username, phone, balance }) {
 
 /**
  * Get full bet history for a player by phone.
- * Scans all 18 stage tables and returns every entry matching the phone.
+ * Scans all amount tables and returns every entry matching the phone.
  */
 function getPlayerHistory(phone, callback) {
   if (!phone) return callback(new Error('Missing phone'));
 
   const results = [];
   let completed = 0;
-  const total = validStages.length * validAmounts.length;
+  const total = validAmounts.length;
 
-  validStages.forEach((s) => {
-    validAmounts.forEach((a) => {
-      const table = `stage${s}_${a}`;
+  validAmounts.forEach((a) => {
+      const table = `amount_${a}`;
       db.all(`SELECT game_id, mark, created_at, updated_at FROM ${table} ORDER BY id DESC`, [], (err, rows) => {
         completed += 1;
         if (!err && rows) {
@@ -72,7 +70,6 @@ function getPlayerHistory(phone, callback) {
               const numbers = numStr.split('|').map(Number).filter(Boolean);
               results.push({
                 gameId: row.game_id,
-                stage: s,
                 amount: a,
                 numbers,
                 username: entryUsername,
@@ -87,7 +84,6 @@ function getPlayerHistory(phone, callback) {
           callback(null, results);
         }
       });
-    });
   });
 }
 

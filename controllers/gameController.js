@@ -17,22 +17,22 @@ function getGame(req, res) {
 }
 
 function createGame(req, res) {
-  const { gameId, stage, amount, players, status } = req.body;
+  const { gameId, amount, players, status } = req.body;
   if (!gameId) return res.status(400).json({ error: 'gameId is required' });
 
-  gameService.createGame({ gameId, stage, amount, players, status }, function (err) {
+  gameService.createGame({ gameId, amount, players, status }, function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ gameId, stage: stage || 1, amount: amount || 10, players: players || 0, status: status || 'waiting' });
+    res.status(201).json({ gameId, amount: amount || 10, players: players || 0, status: status || 'waiting' });
   });
 }
 
 function updateGame(req, res) {
   const { gameId } = req.params;
-  const { stage, amount, players, status } = req.body;
+  const { amount, players, status } = req.body;
 
-  gameService.updateGame(gameId, { stage, amount, players, status }, function (err) {
+  gameService.updateGame(gameId, { amount, players, status }, function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ gameId, stage, amount, players, status });
+    res.json({ gameId, amount, players, status });
   });
 }
 

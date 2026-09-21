@@ -1,22 +1,20 @@
 const db = require('../config/database');
 
 const validAmounts = new Set([10, 20, 30, 50, 100, 200]);
-const validStages = new Set([1, 2, 3]);
 
-function tableNameFor(stage, amount) {
-  const s = Number(stage);
+function tableNameFor(amount) {
   const a = Number(amount);
-  if (!validStages.has(s) || !validAmounts.has(a)) {
-    throw new Error('Invalid stage or amount');
+  if (!validAmounts.has(a)) {
+    throw new Error('Invalid amount');
   }
-  return `stage${s}_${a}`;
+  return `amount_${a}`;
 }
 
-function getAll(stage, amount) {
+function getAll(amount) {
   return new Promise((resolve, reject) => {
     let t;
     try {
-      t = tableNameFor(stage, amount);
+      t = tableNameFor(amount);
     } catch (e) {
       return reject(e);
     }
@@ -28,11 +26,11 @@ function getAll(stage, amount) {
   });
 }
 
-function placeBet(stage, amount, payload) {
+function placeBet(amount, payload) {
   return new Promise((resolve, reject) => {
     let t;
     try {
-      t = tableNameFor(stage, amount);
+      t = tableNameFor(amount);
     } catch (e) {
       return reject(e);
     }
@@ -71,7 +69,7 @@ function placeBet(stage, amount, payload) {
         ensurePlayer((pe, uid) => {
           if (pe) return reject(pe);
 
-          // get latest game row for this stage/amount
+          // get latest game row for this amount
           db.get(`SELECT * FROM ${t} ORDER BY id DESC LIMIT 1`, [], (err2, prow) => {
             if (err2) return reject(err2);
 
@@ -88,8 +86,8 @@ function placeBet(stage, amount, payload) {
                   const nextId = (maxRow && Number(maxRow.maxId) ? Number(maxRow.maxId) : 0) + 1;
                   const gameId = String(nextId);
                   db.run(
-                    'INSERT OR IGNORE INTO games (game_id, stage, amount, players, status) VALUES (?, ?, ?, ?, ?)',
-                    [gameId, Number(stage), Number(amount), 1, 'active'],
+                    'INSERT OR IGNORE INTO games (game_id, amount, players, status) VALUES (?, ?, ?, ?)',
+                    [gameId, Number(amount), 1, 'active'],
                     function (gErr) {
                       if (gErr) return reject(gErr);
                       db.run(
@@ -143,11 +141,11 @@ function placeBet(stage, amount, payload) {
 
 // cancelBet removes a specific bet entry (matched by numbers) for this player,
 // or all entries if no numbers are provided.
-async function cancelBet(stage, amount, phone, numbers) {
+async function cancelBet(amount, phone, numbers) {
   return new Promise((resolve, reject) => {
     let t;
     try {
-      t = tableNameFor(stage, amount);
+      t = tableNameFor(amount);
     } catch (e) {
       return reject(e);
     }

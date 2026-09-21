@@ -81,7 +81,6 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS games (
     id SERIAL PRIMARY KEY,
     game_id TEXT NOT NULL UNIQUE,
-    stage INTEGER NOT NULL DEFAULT 1,
     amount INTEGER NOT NULL DEFAULT 10,
     players INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'waiting',
@@ -117,25 +116,30 @@ const schemaStatements = [
   )`,
 ];
 
+for (const amount of [10, 20, 30, 50, 100, 200]) {
+  schemaStatements.push(`
+    CREATE TABLE IF NOT EXISTS amount_${amount} (
+      id SERIAL PRIMARY KEY,
+      game_id TEXT NOT NULL,
+      total_players INTEGER NOT NULL DEFAULT 0,
+      mark TEXT,
+      payout REAL DEFAULT 0,
+      owner TEXT,
+      winner_id TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP,
+      meta TEXT,
+      FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE,
+      FOREIGN KEY (owner) REFERENCES players(user_id) ON DELETE SET NULL,
+      FOREIGN KEY (winner_id) REFERENCES players(user_id) ON DELETE SET NULL
+    )
+  `);
+}
+
+schemaStatements.push('ALTER TABLE games DROP COLUMN IF EXISTS stage');
 for (const stage of [1, 2, 3]) {
   for (const amount of [10, 20, 30, 50, 100, 200]) {
-    schemaStatements.push(`
-      CREATE TABLE IF NOT EXISTS stage${stage}_${amount} (
-        id SERIAL PRIMARY KEY,
-        game_id TEXT NOT NULL,
-        total_players INTEGER NOT NULL DEFAULT 0,
-        mark TEXT,
-        payout REAL DEFAULT 0,
-        owner TEXT,
-        winner_id TEXT,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP,
-        meta TEXT,
-        FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE,
-        FOREIGN KEY (owner) REFERENCES players(user_id) ON DELETE SET NULL,
-        FOREIGN KEY (winner_id) REFERENCES players(user_id) ON DELETE SET NULL
-      )
-    `);
+    schemaStatements.push(`DROP TABLE IF EXISTS stage${stage}_${amount} CASCADE`);
   }
 }
 
