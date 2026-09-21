@@ -5,6 +5,34 @@ function tableNameFor(amount) {
   return tableNameForAmount(amount);
 }
 
+/** Insert one row into bets table per number */
+function insertBetRows(userId, gameId, numbers, amount, callback) {
+  if (!numbers || numbers.length === 0) return callback(null);
+  let done = 0;
+  let firstErr = null;
+  numbers.forEach((num) => {
+    db.run(
+      'INSERT INTO bets (game_id, user_id, number, amount) VALUES (?, ?, ?, ?)',
+      [gameId, userId, num, amount],
+      (err) => {
+        if (err && !firstErr) firstErr = err;
+        done += 1;
+        if (done === numbers.length) callback(firstErr);
+      }
+    );
+  });
+}
+
+/** Update the player's local balance after a successful bet deduction */
+function updatePlayerBalance(userId, newBalance, callback) {
+  if (newBalance == null) return callback(null);
+  db.run(
+    'UPDATE players SET balance = ? WHERE user_id = ?',
+    [newBalance, userId],
+    callback
+  );
+}
+
 function getAll(amount) {
   return new Promise((resolve, reject) => {
     let t;
@@ -96,9 +124,18 @@ function placeBet(amount, payload) {
                         [gameId, 1, markEntry, 0, uid],
                         function (irErr) {
                           if (irErr) return reject(irErr);
-                          db.get(`SELECT * FROM ${t} WHERE id = ?`, [this.lastID], (finalErr, finalRow) => {
-                            if (finalErr) return reject(finalErr);
-                            resolve({ table: t, gameId, row: finalRow });
+                          const rowId = this.lastID;
+                          // Insert one bets row per number
+                          insertBetRows(uid, gameId, numbers, normalizedAmount, (bErr) => {
+                            if (bErr) console.warn('bets insert warning:', bErr.message);
+                            // Update player balance
+                            updatePlayerBalance(uid, balance, (balErr) => {
+                              if (balErr) console.warn('balance update warning:', balErr.message);
+                              db.get(`SELECT * FROM ${t} WHERE id = ?`, [rowId], (finalErr, finalRow) => {
+                                if (finalErr) return reject(finalErr);
+                                resolve({ table: t, gameId, row: finalRow });
+                              });
+                            });
                           });
                         }
                       );
@@ -108,7 +145,6 @@ function placeBet(amount, payload) {
               );
             } else {
               // game row exists — append new mark entry for this player
-              // (same player is allowed multiple entries — each bet is a separate entry)
               const newTotal = (prow.total_players || 0) + 1;
               const newMark = prow.mark && prow.mark.length
                 ? `${prow.mark},${markEntry}`
@@ -124,9 +160,17 @@ function placeBet(amount, payload) {
                     [prow.game_id],
                     function (gupErr) {
                       if (gupErr) console.warn('Failed to update games.players:', gupErr.message);
-                      db.get(`SELECT * FROM ${t} WHERE id = ?`, [prow.id], (finalErr, finalRow) => {
-                        if (finalErr) return reject(finalErr);
-                        resolve({ table: t, gameId: prow.game_id, row: finalRow });
+                      // Insert one bets row per number
+                      insertBetRows(uid, prow.game_id, numbers, normalizedAmount, (bErr) => {
+                        if (bErr) console.warn('bets insert warning:', bErr.message);
+                        // Update player balance in local DB
+                        updatePlayerBalance(uid, balance, (balErr) => {
+                          if (balErr) console.warn('balance update warning:', balErr.message);
+                          db.get(`SELECT * FROM ${t} WHERE id = ?`, [prow.id], (finalErr, finalRow) => {
+                            if (finalErr) return reject(finalErr);
+                            resolve({ table: t, gameId: prow.game_id, row: finalRow });
+                          });
+                        });
                       });
                     }
                   );
