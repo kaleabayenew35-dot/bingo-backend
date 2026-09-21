@@ -33,6 +33,16 @@ function updatePlayerBalance(userId, newBalance, callback) {
   );
 }
 
+/** Update the player's local balance by phone number */
+function updatePlayerBalanceByPhone(phone, newBalance, callback) {
+  if (newBalance == null) return callback(null);
+  db.run(
+    'UPDATE players SET balance = ? WHERE phone = ? OR user_id = ?',
+    [newBalance, phone, phone],
+    callback
+  );
+}
+
 function getAll(amount) {
   return new Promise((resolve, reject) => {
     let t;
@@ -281,4 +291,5 @@ module.exports = {
   placeBet,
   cancelBet,
   tableNameFor,
+  updatePlayerBalanceByPhone,
 };

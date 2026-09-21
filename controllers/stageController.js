@@ -120,12 +120,107 @@ async function placeBet(req, res, next) {
   }
 }
 
+/**
+ * POST /api/amount/:amount/cancel
+ *
+ * Body: { phone, numbers?, launch? }
+ *
+ * Flow:
+ *  1. Cancel the bet entry in bingo DB (mark + bets table)
+ *  2. Refund removedCount × amount back to player via system backend
+ *     PATCH /api/players/ph_<phone>/balance  { amount: +refund }
+ *  3. Update local player balance
+ *  4. Return { success, gameId, refundAmount, newBalance }
+ */
 async function cancelBet(req, res, next) {
   const { amount } = req.params;
-  const { phone, numbers } = req.body;
+  const betAmount = Number(amount);
+  const { phone, numbers, launch } = req.body || {};
+
+  if (!phone && !launch) {
+    return res.status(400).json({ error: 'phone or launch token required' });
+  }
+
   try {
-    const result = await amountService.cancelBet(amount, phone, numbers);
-    res.json({ success: true, result });
+    // ── 1. Resolve verified phone (from launch token if provided) ──────────
+    let verifiedPhone = phone;
+
+    if (launch) {
+      try {
+        const verifyRes = await fetch(`${systemApiBase()}/verify-launch-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ launch }),
+        });
+        const verifyData = await verifyRes.json();
+        if (verifyRes.ok && verifyData.valid && verifyData.user?.phone) {
+          verifiedPhone = verifyData.user.phone;
+        }
+      } catch (_) {
+        // fall back to client-provided phone
+      }
+    }
+
+    if (!verifiedPhone) {
+      return res.status(400).json({ error: 'Could not resolve player phone' });
+    }
+
+    // ── 2. Remove bet from bingo DB ────────────────────────────────────────
+    const result = await amountService.cancelBet(betAmount, verifiedPhone, numbers);
+    const refundAmount = (result.removedCount || 1) * betAmount;
+
+    // ── 3. Refund balance on system backend ────────────────────────────────
+    let newBalance = null;
+    const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
+    const playerId = `ph_${verifiedPhone.replace(/^\+/, '')}`;
+
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (systemToken) headers['x-api-token'] = systemToken;
+
+      const refundRes = await fetch(
+        `${systemApiBase()}/players/${encodeURIComponent(playerId)}/balance`,
+        {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ amount: refundAmount }),
+        }
+      );
+
+      if (refundRes.ok) {
+        const refundData = await refundRes.json();
+        // system backend returns { data: { balance, ... } } or { balance }
+        newBalance = Number(
+          refundData.data?.balance ??
+          refundData.balance ??
+          refundData.user?.balance ??
+          null
+        );
+      } else {
+        const errBody = await refundRes.text();
+        console.warn(`[cancelBet] System backend refund returned ${refundRes.status}: ${errBody}`);
+      }
+    } catch (refundErr) {
+      console.warn('[cancelBet] System backend refund failed:', refundErr.message);
+    }
+
+    // ── 4. Sync local player balance ────────────────────────────────────────
+    if (newBalance != null) {
+      await new Promise((resolve) => {
+        amountService.updatePlayerBalanceByPhone(verifiedPhone, newBalance, (err) => {
+          if (err) console.warn('[cancelBet] local balance sync failed:', err.message);
+          resolve();
+        });
+      });
+    }
+
+    return res.json({
+      success: true,
+      gameId: result.gameId,
+      refundAmount,
+      newBalance,
+      result,
+    });
   } catch (err) {
     next(err);
   }
