@@ -1,6 +1,7 @@
 const db = require('../config/database');
 
 const validAmounts = new Set([10, 20, 30, 50, 100, 200]);
+const amountPrefixes = { 10: 'A', 20: 'B', 30: 'C', 50: 'D', 100: 'E', 200: 'F' };
 
 function tableNameFor(amount) {
   const a = Number(amount);
@@ -78,13 +79,15 @@ function placeBet(amount, payload) {
 
             if (!prow) {
               // no game row yet — create first game + first row
+              const prefix = amountPrefixes[Number(amount)];
               db.get(
-                "SELECT MAX(CAST(game_id AS INTEGER)) AS \"maxId\" FROM games WHERE game_id ~ '^[0-9]+$'",
+                `SELECT MAX(CAST(SUBSTRING(game_id FROM 2) AS INTEGER)) AS "maxId"
+                 FROM games WHERE game_id ~ '^${prefix}[0-9]+$'`,
                 [],
                 (maxErr, maxRow) => {
                   if (maxErr) return reject(maxErr);
                   const nextId = (maxRow && Number(maxRow.maxId) ? Number(maxRow.maxId) : 0) + 1;
-                  const gameId = String(nextId);
+                  const gameId = `${prefix}${nextId}`;
                   db.run(
                     'INSERT OR IGNORE INTO games (game_id, amount, players, status) VALUES (?, ?, ?, ?)',
                     [gameId, Number(amount), 1, 'active'],

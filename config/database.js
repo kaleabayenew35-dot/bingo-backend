@@ -143,8 +143,35 @@ for (const stage of [1, 2, 3]) {
   }
 }
 
+async function seedInitialRounds() {
+  const rounds = [
+    ['A', 10],
+    ['B', 20],
+    ['C', 30],
+    ['D', 50],
+    ['E', 100],
+    ['F', 200],
+  ];
+  for (const [prefix, amount] of rounds) {
+    const gameId = `${prefix}1`;
+    await query(
+      `INSERT INTO games (game_id, amount, players, status)
+       VALUES (?, ?, 0, 'waiting')
+       ON CONFLICT (game_id) DO NOTHING`,
+      [gameId, amount]
+    );
+    await query(
+      `INSERT INTO amount_${amount} (game_id, total_players, mark, payout, owner, winner_id)
+       SELECT ?, 0, NULL, 0, NULL, NULL
+       WHERE NOT EXISTS (SELECT 1 FROM amount_${amount} WHERE game_id = ?)`,
+      [gameId, gameId]
+    );
+  }
+}
+
 const databaseReady = (async () => {
   for (const statement of schemaStatements) await query(statement);
+  await seedInitialRounds();
   console.log('PostgreSQL schema ready');
 })().catch((error) => {
   console.error('PostgreSQL initialization failed:', error);
