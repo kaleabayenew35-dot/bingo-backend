@@ -24,6 +24,9 @@ app.use('/api/games', gameRoutes);
 app.use('/api/bets', betRoutes);
 app.use('/api/players', playerRoutes);
 app.use('/api/amount', amountRoutes);
+// Legacy URL compatibility for older cached Bingo frontends. The stage segment
+// is ignored; all requests resolve to the amount-only implementation.
+app.use('/api/stage/:stage/amount', amountRoutes);
 app.use('/api/draw', drawRoutes);
 
 // GET /api/timers — all 18 timers at once
