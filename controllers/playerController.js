@@ -7,8 +7,11 @@ async function syncPlayer(req, res) {
   }
 
   try {
-    const systemApiUrl = process.env.SYSTEM_BACKEND_API_URL || 'https://system-backend-jbnd.onrender.com/api';
-    const verification = await fetch(`${systemApiUrl}/verify-launch-token`, {
+    const systemApiUrl = (process.env.SYSTEM_BACKEND_API_URL || process.env.SYSTEM_BACKEND_URL || 'https://system-backend-1u5m.onrender.com').replace(/\/$/, '');
+    const verifyUrl = systemApiUrl.endsWith('/api')
+      ? `${systemApiUrl}/verify-launch-token`
+      : `${systemApiUrl}/api/verify-launch-token`;
+    const verification = await fetch(verifyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ launch }),
