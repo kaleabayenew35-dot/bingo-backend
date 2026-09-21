@@ -1,5 +1,41 @@
 const db = require('../config/database');
 
+const amountPrefixes = { 10: 'A', 20: 'B', 30: 'C', 50: 'D', 100: 'E', 200: 'F' };
+
+function createNextRound(gameId, callback) {
+  db.get('SELECT amount FROM games WHERE game_id = ?', [gameId], (gameError, game) => {
+    if (gameError) return callback(gameError);
+    const amount = Number(game?.amount);
+    const prefix = amountPrefixes[amount];
+    if (!prefix) return callback(new Error('Cannot create next round for invalid amount'));
+
+    const table = `amount_${amount}`;
+    db.get(
+      `SELECT MAX(CAST(SUBSTRING(game_id FROM 2) AS INTEGER)) AS "maxId"
+       FROM games WHERE game_id ~ '^${prefix}[0-9]+$'`,
+      [],
+      (maxError, maxRow) => {
+        if (maxError) return callback(maxError);
+        const nextId = (maxRow && Number(maxRow.maxId) ? Number(maxRow.maxId) : 0) + 1;
+        const nextGameId = `${prefix}${nextId}`;
+        db.run(
+          'INSERT INTO games (game_id, amount, players, status) VALUES (?, ?, 0, ?)',
+          [nextGameId, amount, 'waiting'],
+          (insertGameError) => {
+            if (insertGameError) return callback(insertGameError);
+            db.run(
+              `INSERT INTO ${table} (game_id, total_players, mark, payout, owner, winner_id)
+               VALUES (?, 0, NULL, 0, NULL, NULL)`,
+              [nextGameId],
+              (insertRoundError) => callback(insertRoundError, nextGameId)
+            );
+          }
+        );
+      }
+    );
+  });
+}
+
 // Fisher-Yates shuffle of numbers 1-75
 function generateSequence() {
   const arr = Array.from({ length: 75 }, (_, i) => i + 1);
@@ -98,15 +134,20 @@ function nextCall(gameId, callback) {
         const newIndex     = currentIndex + 1;
 
         db.run(
-          `UPDATE games SET draw_index = ? WHERE game_id = ?`,
-          [newIndex, gameId],
+          `UPDATE games SET draw_index = ?, status = ? WHERE game_id = ?`,
+          [newIndex, newIndex >= total ? 'completed' : 'active', gameId],
           (ue) => {
             if (ue) return callback(ue);
-            callback(null, {
-              number:    calledNumber,
-              drawIndex: newIndex,        // how many called so far (1-based)
+            const result = {
+              number: calledNumber,
+              drawIndex: newIndex,
               total,
-              done:      newIndex >= total,
+              done: newIndex >= total,
+            };
+            if (!result.done) return callback(null, result);
+            createNextRound(gameId, (roundError, nextGameId) => {
+              if (roundError) return callback(roundError);
+              callback(null, { ...result, nextGameId });
             });
           }
         );
