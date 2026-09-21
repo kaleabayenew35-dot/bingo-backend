@@ -1,5 +1,41 @@
 const playerService = require('../services/playerService');
 
+async function syncPlayer(req, res) {
+  const { launch, username, phone, balance } = req.body || {};
+  if (!launch || !phone) {
+    return res.status(400).json({ error: 'launch and phone are required' });
+  }
+
+  try {
+    const systemApiUrl = process.env.SYSTEM_BACKEND_API_URL || 'https://system-backend-jbnd.onrender.com/api';
+    const verification = await fetch(`${systemApiUrl}/verify-launch-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ launch }),
+    });
+
+    const data = await verification.json();
+    if (!verification.ok || !data.valid || !data.user) {
+      return res.status(401).json({ error: data.reason || 'Invalid launch token' });
+    }
+
+    if (data.user.phone !== phone) {
+      return res.status(401).json({ error: 'Launch user does not match phone' });
+    }
+
+    const user = {
+      userId: data.user.phone,
+      username: data.user.username || username || data.user.phone,
+      phone: data.user.phone,
+      balance: Number(data.user.balance ?? balance ?? 0),
+    };
+    const synced = await playerService.upsertPlayer(user);
+    return res.json({ success: true, user: synced });
+  } catch (error) {
+    return res.status(502).json({ error: `System backend unavailable: ${error.message}` });
+  }
+}
+
 function getPlayers(req, res) {
   playerService.listPlayers((err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -38,6 +74,7 @@ function getPlayerHistory(req, res) {
 }
 
 module.exports = {
+  syncPlayer,
   getPlayers,
   getPlayer,
   createPlayer,

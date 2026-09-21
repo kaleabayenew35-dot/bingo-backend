@@ -18,6 +18,28 @@ function createPlayer({ userId, username, phone, balance }, callback) {
   stmt.run(userId, username, phone, balance || 0, callback);
 }
 
+function upsertPlayer({ userId, username, phone, balance }) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO players (user_id, username, phone, balance)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET
+         username = EXCLUDED.username,
+         phone = EXCLUDED.phone,
+         balance = EXCLUDED.balance`,
+      [userId, username, phone, balance],
+      (error) => {
+        if (error) return reject(error);
+        getPlayer(userId, (getError, row) => {
+          if (getError) return reject(getError);
+          if (!row) return reject(new Error('Failed to load synced player'));
+          resolve(row);
+        });
+      }
+    );
+  });
+}
+
 /**
  * Get full bet history for a player by phone.
  * Scans all 18 stage tables and returns every entry matching the phone.
@@ -73,5 +95,6 @@ module.exports = {
   listPlayers,
   getPlayer,
   createPlayer,
+  upsertPlayer,
   getPlayerHistory,
 };
