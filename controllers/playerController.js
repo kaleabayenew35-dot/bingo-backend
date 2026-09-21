@@ -18,19 +18,30 @@ async function syncPlayer(req, res) {
     });
 
     const data = await verification.json();
-    if (!verification.ok || !data.valid || !data.user) {
+
+    // verify-launch-token returns { valid, phone, username, balance } at top level
+    if (!verification.ok || !data.valid) {
       return res.status(401).json({ error: data.reason || 'Invalid launch token' });
     }
 
-    if (phone && data.user.phone !== phone) {
+    // support both flat response and nested user object
+    const verifiedPhone    = data.phone    ?? data.user?.phone;
+    const verifiedUsername = data.username ?? data.user?.username;
+    const verifiedBalance  = data.balance  ?? data.user?.balance;
+
+    if (!verifiedPhone) {
+      return res.status(401).json({ error: 'Launch token missing phone' });
+    }
+
+    if (phone && verifiedPhone !== phone) {
       return res.status(401).json({ error: 'Launch user does not match phone' });
     }
 
     const user = {
-      userId: data.user.phone,
-      username: data.user.username || username || data.user.phone,
-      phone: data.user.phone,
-      balance: Number(data.user.balance ?? balance ?? 0),
+      userId:   verifiedPhone,
+      username: verifiedUsername || username || verifiedPhone,
+      phone:    verifiedPhone,
+      balance:  Number(verifiedBalance ?? balance ?? 0),
     };
     const synced = await playerService.upsertPlayer(user);
     return res.json({ success: true, user: synced });

@@ -60,12 +60,13 @@ async function placeBet(req, res, next) {
         body: JSON.stringify({ launch }),
       });
       const verifyData = await verifyRes.json();
-      if (!verifyRes.ok || !verifyData.valid || !verifyData.user) {
+      if (!verifyRes.ok || !verifyData.valid) {
         return res.status(401).json({ error: verifyData.reason || 'Invalid launch token' });
       }
-      verifiedPhone    = verifyData.user.phone;
-      verifiedUsername = verifyData.user.username || verifiedPhone;
-      liveBalance      = Number(verifyData.user.balance ?? 0);
+      // verify-launch-token returns flat { valid, phone, username, balance }
+      verifiedPhone    = verifyData.phone    ?? verifyData.user?.phone    ?? phone;
+      verifiedUsername = verifyData.username ?? verifyData.user?.username ?? verifiedUsername;
+      liveBalance      = Number(verifyData.balance ?? verifyData.user?.balance ?? 0);
     } else {
       // fall back: fetch player balance by phone
       const balRes = await fetch(`${systemApiBase()}/players/balance?phone=${encodeURIComponent(phone)}`);
@@ -85,19 +86,34 @@ async function placeBet(req, res, next) {
 
     // ── 3. Deduct balance on system backend ───────────────────────────────
     let newBalance = liveBalance - betAmount;
+    const systemToken = process.env.SYSTEM_BACKEND_TOKEN;
+    const playerId = `ph_${verifiedPhone.replace(/^\+/, '')}`;
+
     try {
-      const deductRes = await fetch(`${systemApiBase()}/players/deduct`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: verifiedPhone, amount: betAmount }),
-      });
+      const headers = { 'Content-Type': 'application/json' };
+      if (systemToken) headers['x-api-token'] = systemToken;
+
+      const deductRes = await fetch(
+        `${systemApiBase()}/players/${encodeURIComponent(playerId)}/balance`,
+        {
+          method: 'PATCH',
+          headers,
+          body: JSON.stringify({ amount: -betAmount }), // negative = deduct
+        }
+      );
+
       if (deductRes.ok) {
         const deductData = await deductRes.json();
-        newBalance = Number(deductData.balance ?? deductData.user?.balance ?? newBalance);
+        // system backend wraps in { ok: true, data: { balance, ... } }
+        const serverBalance = deductData.data?.balance ?? deductData.balance ?? null;
+        if (serverBalance != null) newBalance = Number(serverBalance);
+      } else {
+        const errText = await deductRes.text();
+        console.warn(`[placeBet] Deduct returned ${deductRes.status}: ${errText}`);
       }
-      // If deduct endpoint doesn't exist yet we still proceed with client-calculated balance
-    } catch (_) {
-      // system backend deduct unavailable — continue with optimistic balance
+    } catch (deductErr) {
+      console.warn('[placeBet] System backend deduct failed:', deductErr.message);
+      // proceed with optimistic balance — bet is still saved
     }
 
     // ── 4. Save bet in bingo DB ───────────────────────────────────────────
@@ -153,8 +169,8 @@ async function cancelBet(req, res, next) {
           body: JSON.stringify({ launch }),
         });
         const verifyData = await verifyRes.json();
-        if (verifyRes.ok && verifyData.valid && verifyData.user?.phone) {
-          verifiedPhone = verifyData.user.phone;
+        if (verifyRes.ok && verifyData.valid) {
+          verifiedPhone = verifyData.phone ?? verifyData.user?.phone ?? verifiedPhone;
         }
       } catch (_) {
         // fall back to client-provided phone
@@ -183,22 +199,18 @@ async function cancelBet(req, res, next) {
         {
           method: 'PATCH',
           headers,
-          body: JSON.stringify({ amount: refundAmount }),
+          body: JSON.stringify({ amount: refundAmount }), // positive = credit back
         }
       );
 
       if (refundRes.ok) {
         const refundData = await refundRes.json();
-        // system backend returns { data: { balance, ... } } or { balance }
-        newBalance = Number(
-          refundData.data?.balance ??
-          refundData.balance ??
-          refundData.user?.balance ??
-          null
-        );
+        // system backend wraps in { ok: true, data: { balance, ... } }
+        const serverBalance = refundData.data?.balance ?? refundData.balance ?? null;
+        if (serverBalance != null) newBalance = Number(serverBalance);
       } else {
         const errBody = await refundRes.text();
-        console.warn(`[cancelBet] System backend refund returned ${refundRes.status}: ${errBody}`);
+        console.warn(`[cancelBet] Refund returned ${refundRes.status}: ${errBody}`);
       }
     } catch (refundErr) {
       console.warn('[cancelBet] System backend refund failed:', refundErr.message);
