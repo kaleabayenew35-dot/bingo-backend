@@ -4,7 +4,6 @@ const cors = require('cors');
 const gameRoutes = require('./routes/gameRoutes');
 const betRoutes = require('./routes/betRoutes');
 const playerRoutes = require('./routes/playerRoutes');
-const amountRoutes = require('./routes/stageRoutes');
 const drawRoutes = require('./routes/drawRoutes');
 const errorHandler = require('./middleware/errorHandler');
 const db = require('./config/database');
@@ -23,7 +22,6 @@ initTimers();
 app.use('/api/games', gameRoutes);
 app.use('/api/bets', betRoutes);
 app.use('/api/players', playerRoutes);
-app.use('/api/amount', amountRoutes);
 app.use('/api/draw', drawRoutes);
 
 // GET /api/timers — all amount timers at once
