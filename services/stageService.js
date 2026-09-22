@@ -88,31 +88,35 @@ function placeBet(amount, payload) {
       return reject(new Error('Missing required fields'));
     }
 
-    const userId = phone; // phone is used as user_id
+    const canonicalPhone = normalizePhone(phone) || phone;
+    const userId = canonicalPhone; // phone is used as user_id, but canonicalized to avoid collisions
 
     db.serialize(() => {
       // ensure player record exists
-      db.get('SELECT user_id FROM players WHERE phone = ?', [phone], (err, row) => {
-        if (err) return reject(err);
+      db.get(
+        'SELECT user_id FROM players WHERE phone = ? OR phone = ? OR user_id = ? OR user_id = ? LIMIT 1',
+        [canonicalPhone, phone, canonicalPhone, phone],
+        (err, row) => {
+          if (err) return reject(err);
 
-        const ensurePlayer = (cb) => {
-          if (row && row.user_id) return cb(null, row.user_id);
-          db.run(
-            'INSERT OR IGNORE INTO players (user_id, username, phone, balance) VALUES (?, ?, ?, ?)',
-            [userId, username || userId, phone, balance || 0],
-            function (pe) {
-              if (pe) return cb(pe);
-              db.get(
-                'SELECT user_id FROM players WHERE phone = ? OR user_id = ? LIMIT 1',
-                [phone, userId],
-                (se, srow) => {
-                  if (se) return cb(se);
-                  return cb(null, srow ? srow.user_id : userId);
-                }
-              );
-            }
-          );
-        };
+          const ensurePlayer = (cb) => {
+            if (row && row.user_id) return cb(null, row.user_id);
+            db.run(
+              'INSERT OR IGNORE INTO players (user_id, username, phone, balance) VALUES (?, ?, ?, ?)',
+              [userId, username || userId, canonicalPhone, balance || 0],
+              function (pe) {
+                if (pe) return cb(pe);
+                db.get(
+                  'SELECT user_id FROM players WHERE phone = ? OR phone = ? OR user_id = ? OR user_id = ? LIMIT 1',
+                  [canonicalPhone, phone, canonicalPhone, phone],
+                  (se, srow) => {
+                    if (se) return cb(se);
+                    return cb(null, srow ? srow.user_id : userId);
+                  }
+                );
+              }
+            );
+          };
 
         ensurePlayer((pe, uid) => {
           if (pe) return reject(pe);

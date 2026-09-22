@@ -1,5 +1,15 @@
 const playerService = require('../services/playerService');
 
+function normalizePhoneForComparison(value) {
+  if (!value) return '';
+  const clean = String(value).replace(/\D/g, '');
+  if (!clean) return '';
+  if (clean.startsWith('251')) return clean;
+  if (clean.startsWith('0') && clean.length === 10) return `251${clean.slice(1)}`;
+  if (clean.length === 9) return `251${clean}`;
+  return clean;
+}
+
 async function syncPlayer(req, res) {
   const { launch, username, phone, balance } = req.body || {};
   if (!launch) {
@@ -33,14 +43,17 @@ async function syncPlayer(req, res) {
       return res.status(401).json({ error: 'Launch token missing phone' });
     }
 
-    if (phone && verifiedPhone !== phone) {
+    const normalizedVerifiedPhone = normalizePhoneForComparison(verifiedPhone);
+    const normalizedClientPhone = normalizePhoneForComparison(phone);
+    if (phone && normalizedVerifiedPhone && normalizedClientPhone && normalizedVerifiedPhone !== normalizedClientPhone) {
       return res.status(401).json({ error: 'Launch user does not match phone' });
     }
 
+    const canonicalPhone = normalizedVerifiedPhone || verifiedPhone;
     const user = {
-      userId:   verifiedPhone,
-      username: verifiedUsername || username || verifiedPhone,
-      phone:    verifiedPhone,
+      userId:   canonicalPhone,
+      username: verifiedUsername || username || canonicalPhone,
+      phone:    canonicalPhone,
       balance:  Number(verifiedBalance ?? balance ?? 0),
     };
     const synced = await playerService.upsertPlayer(user);
