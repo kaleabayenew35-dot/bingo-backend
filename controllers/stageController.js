@@ -15,6 +15,15 @@ function systemApiBase() {
     : `${SYSTEM_BACKEND_URL}/api`;
 }
 
+function normalizePhone(phone) {
+  const clean = String(phone || '').replace(/\D/g, '');
+  if (!clean) return '';
+  if (clean.length === 9) return `251${clean}`;
+  if (clean.startsWith('251') && clean.length >= 12) return clean;
+  if (clean.startsWith('0') && clean.length >= 10) return `251${clean.slice(1)}`;
+  return clean;
+}
+
 /**
  * Call POST /api/game-api/game-action on the system backend.
  * action: 'deduct' (bet placed) | 'refund' (bet cancelled)
@@ -102,8 +111,18 @@ async function placeBet(req, res, next) {
         return res.status(401).json({ error: verifyData.reason || 'Invalid launch token' });
       }
       // verify-launch-token returns flat { valid, phone, username, balance }
-      verifiedPhone    = verifyData.phone    ?? verifyData.user?.phone    ?? phone;
-      verifiedUsername = verifyData.username ?? verifyData.user?.username ?? verifiedUsername;
+      const tokenPhone    = verifyData.phone    ?? verifyData.user?.phone;
+      const tokenUsername = verifyData.username ?? verifyData.user?.username;
+
+      // Identity guard: if client supplied a phone, ensure launch token belongs to the same phone
+      if (phone && tokenPhone && normalizePhone(tokenPhone) !== normalizePhone(phone)) {
+        return res.status(401).json({
+          error: `Launch token belongs to player ${tokenPhone}, but bet was requested for ${phone}`,
+        });
+      }
+
+      verifiedPhone    = tokenPhone || phone;
+      verifiedUsername = tokenUsername || username || verifiedPhone;
       liveBalance      = Number(verifyData.balance ?? verifyData.user?.balance ?? 0);
     } else {
       // fall back: fetch player balance by phone
@@ -195,7 +214,13 @@ async function cancelBet(req, res, next) {
         });
         const verifyData = await verifyRes.json();
         if (verifyRes.ok && verifyData.valid) {
-          verifiedPhone = verifyData.phone ?? verifyData.user?.phone ?? verifiedPhone;
+          const tokenPhone = verifyData.phone ?? verifyData.user?.phone;
+          if (phone && tokenPhone && normalizePhone(tokenPhone) !== normalizePhone(phone)) {
+            return res.status(401).json({
+              error: `Launch token belongs to player ${tokenPhone}, but cancel was requested for ${phone}`,
+            });
+          }
+          verifiedPhone = tokenPhone || verifiedPhone;
         }
       } catch (_) {
         // fall back to client-provided phone
