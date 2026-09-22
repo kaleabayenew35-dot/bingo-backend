@@ -1,7 +1,5 @@
 const db = require('../config/database');
-
-const validAmounts = [10, 20, 30, 50, 100, 200];
-const { canonicalGameId } = require('../config/amounts');
+const { AMOUNTS, canonicalGameId } = require('../config/amounts');
 
 function listPlayers(callback) {
   db.all('SELECT * FROM players ORDER BY created_at DESC', callback);
@@ -49,53 +47,53 @@ function getPlayerHistory(phone, callback) {
 
   const results = [];
   let completed = 0;
-  const total = validAmounts.length;
+  const total = AMOUNTS.length;
 
-  validAmounts.forEach((a) => {
-      const table = `amount_${a}`;
-      db.all(`
-        SELECT a.game_id, a.mark, a.payout, a.winner_id, a.created_at, a.updated_at,
-               g.status AS game_status
-        FROM ${table} a
-        LEFT JOIN games g ON g.game_id = a.game_id
-        ORDER BY a.id DESC
-      `, [], (err, rows) => {
-        completed += 1;
-        if (!err && rows) {
-          rows.forEach((row) => {
-            const entries = (row.mark || '').split(',').map((e) => e.trim()).filter(Boolean);
-            entries.forEach((entry) => {
-              // parse both formats: "username|phone:nums" and "phone:nums"
-              const colonIdx = entry.indexOf(':');
-              if (colonIdx === -1) return;
-              const beforeColon = entry.slice(0, colonIdx);
-              const numStr = entry.slice(colonIdx + 1);
-              const pipeIdx = beforeColon.indexOf('|');
-              const entryPhone = pipeIdx !== -1 ? beforeColon.slice(pipeIdx + 1) : beforeColon;
-              const entryUsername = pipeIdx !== -1 ? beforeColon.slice(0, pipeIdx) : beforeColon;
-              if (entryPhone !== phone) return;
-              const numbers = numStr.split('|').map(Number).filter(Boolean);
-              const hasWinner = Boolean(row.winner_id);
-              const isWinner = hasWinner && row.winner_id === entryPhone;
-              const isComplete = row.game_status === 'completed';
-              results.push({
-                gameId: canonicalGameId(row.game_id, a),
-                amount: a,
-                numbers,
-                username: entryUsername,
-                status: isComplete && hasWinner ? (isWinner ? 'win' : 'lose') : 'pending',
-                payout: isWinner ? Number(row.payout || 0) : 0,
-                placedAt: row.updated_at || row.created_at,
-              });
+  AMOUNTS.forEach((a) => {
+    const table = `amount_${a}`;
+    db.all(`
+      SELECT a.game_id, a.mark, a.payout, a.winner_id, a.created_at, a.updated_at,
+             g.status AS game_status
+      FROM ${table} a
+      LEFT JOIN games g ON g.game_id = a.game_id
+      ORDER BY a.id DESC
+    `, [], (err, rows) => {
+      completed += 1;
+      if (!err && rows) {
+        rows.forEach((row) => {
+          const entries = (row.mark || '').split(',').map((e) => e.trim()).filter(Boolean);
+          entries.forEach((entry) => {
+            // parse both formats: "username|phone:nums" and "phone:nums"
+            const colonIdx = entry.indexOf(':');
+            if (colonIdx === -1) return;
+            const beforeColon = entry.slice(0, colonIdx);
+            const numStr = entry.slice(colonIdx + 1);
+            const pipeIdx = beforeColon.indexOf('|');
+            const entryPhone = pipeIdx !== -1 ? beforeColon.slice(pipeIdx + 1) : beforeColon;
+            const entryUsername = pipeIdx !== -1 ? beforeColon.slice(0, pipeIdx) : beforeColon;
+            if (entryPhone !== phone) return;
+            const numbers = numStr.split('|').map(Number).filter(Boolean);
+            const hasWinner = Boolean(row.winner_id);
+            const isWinner = hasWinner && row.winner_id === entryPhone;
+            const isComplete = row.game_status === 'completed';
+            results.push({
+              gameId: canonicalGameId(row.game_id, a),
+              amount: a,
+              numbers,
+              username: entryUsername,
+              status: isComplete && hasWinner ? (isWinner ? 'win' : 'lose') : 'pending',
+              payout: isWinner ? Number(row.payout || 0) : 0,
+              placedAt: row.updated_at || row.created_at,
             });
           });
-        }
-        if (completed === total) {
-          // sort newest first
-          results.sort((a, b) => (b.placedAt || '').localeCompare(a.placedAt || ''));
-          callback(null, results);
-        }
-      });
+        });
+      }
+      if (completed === total) {
+        // sort newest first
+        results.sort((a, b) => (b.placedAt || '').localeCompare(a.placedAt || ''));
+        callback(null, results);
+      }
+    });
   });
 }
 

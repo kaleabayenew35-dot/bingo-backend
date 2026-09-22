@@ -5,6 +5,17 @@ function tableNameFor(amount) {
   return tableNameForAmount(amount);
 }
 
+// ── Normalize a phone to a canonical digits-only form ──────────────────────
+// Ensures consistent comparison regardless of whether the phone was stored
+// with a leading 0, +251 prefix, or bare 9-digit form.
+function normalizePhone(phone) {
+  const clean = String(phone || '').replace(/\D/g, '');
+  if (!clean) return '';
+  if (clean.startsWith('251') && clean.length >= 12) return clean;
+  if (clean.startsWith('0') && clean.length >= 10) return `251${clean.slice(1)}`;
+  return clean;
+}
+
 /** Insert one row into bets table per number */
 function insertBetRows(userId, gameId, numbers, amount, callback) {
   if (!numbers || numbers.length === 0) return callback(null);
@@ -134,10 +145,11 @@ function placeBet(amount, payload) {
 
             if (!prow) {
               // no game row yet — create first game + first row
+              // PostgreSQL-compatible: use LIKE prefix match and CAST(SUBSTRING(col, pos) AS INTEGER)
               const prefix = prefixForAmount(normalizedAmount);
               db.get(
-                `SELECT MAX(CAST(SUBSTRING(game_id FROM 2) AS INTEGER)) AS "maxId"
-                 FROM games WHERE game_id ~ '^${prefix}[0-9]+$'`,
+                `SELECT MAX(CAST(SUBSTRING(game_id, 2) AS INTEGER)) AS "maxId"
+                 FROM games WHERE game_id LIKE '${prefix}%'`,
                 [],
                 (maxErr, maxRow) => {
                   if (maxErr) return reject(maxErr);
@@ -227,6 +239,8 @@ async function cancelBet(amount, phone, numbers) {
     if (!phone) return reject(new Error('Missing phone'));
 
     const userId = phone;
+    const normalizedCallerPhone = normalizePhone(phone);
+
     db.serialize(() => {
       db.get(`SELECT * FROM ${t} ORDER BY id DESC LIMIT 1`, [], (err, prow) => {
         if (err) return reject(err);
@@ -234,7 +248,7 @@ async function cancelBet(amount, phone, numbers) {
 
         const parts = (prow.mark || '').split(',').map((p) => p.trim()).filter(Boolean);
 
-        // Helper: extract the phone from an entry regardless of format
+        // Helper: extract the phone from an entry regardless of format.
         // new format: "username|phone:nums"  → phone is between "|" and ":"
         // old format: "phone:nums"           → phone is before ":"
         function entryPhone(entry) {
@@ -252,24 +266,34 @@ async function cancelBet(amount, phone, numbers) {
           return entry.slice(colonIdx + 1).split('|').map(Number).filter(Boolean);
         }
 
+        // Use normalized phone comparison to handle different phone formats
+        function isOwnEntry(entry) {
+          return normalizePhone(entryPhone(entry)) === normalizedCallerPhone;
+        }
+
         let toRemove = [];
         let remaining = [];
+        let numbersToDelete = null; // null means delete all for user
 
         if (numbers && Array.isArray(numbers) && numbers.length > 0) {
           const sortedTarget = [...numbers].map(Number).sort((a, b) => a - b).join('|');
           // match entries that belong to this phone AND whose numbers match
           toRemove = parts.filter((p) => {
-            if (entryPhone(p) !== phone) return false; // HARD GUARD: own entries only
+            if (!isOwnEntry(p)) return false; // HARD GUARD: own entries only
             const sorted = entryNums(p).sort((a, b) => a - b).join('|');
             return sorted === sortedTarget;
           });
           remaining = parts.filter((p) => !toRemove.includes(p));
           if (toRemove.length === 0) return reject(new Error('Matching bet entry not found'));
+          // Only delete these specific numbers from the bets table
+          numbersToDelete = numbers.map(Number);
         } else {
           // cancel ALL entries belonging to this phone only
-          toRemove = parts.filter((p) => entryPhone(p) === phone);
-          remaining = parts.filter((p) => entryPhone(p) !== phone);
+          toRemove = parts.filter((p) => isOwnEntry(p));
+          remaining = parts.filter((p) => !isOwnEntry(p));
           if (toRemove.length === 0) return reject(new Error('User has not placed a bet'));
+          // Delete ALL bets for this user in this game
+          numbersToDelete = null;
         }
 
         const newMark = remaining.join(',');
@@ -280,24 +304,29 @@ async function cancelBet(amount, phone, numbers) {
           [newTotal, newMark, prow.id],
           function (upErr) {
             if (upErr) return reject(upErr);
-            db.run(
-              'DELETE FROM bets WHERE game_id = ? AND user_id = ?',
-              [prow.game_id, userId],
-              function (delErr) {
-                if (delErr) console.warn('Failed to delete bet records:', delErr.message);
-                db.run(
-                  'UPDATE games SET players = MAX(players - ?, 0) WHERE game_id = ?',
-                  [toRemove.length, prow.game_id],
-                  function (gErr) {
-                    if (gErr) console.warn('Failed to decrement games.players:', gErr.message);
-                    db.get(`SELECT * FROM ${t} WHERE id = ?`, [prow.id], (finalErr, finalRow) => {
-                      if (finalErr) return reject(finalErr);
-                      resolve({ table: t, gameId: prow.game_id, row: finalRow, removedCount: toRemove.length });
-                    });
-                  }
-                );
-              }
-            );
+
+            // Delete only the specific bet numbers (partial cancel) or all (full cancel)
+            const deleteQuery = numbersToDelete
+              ? `DELETE FROM bets WHERE game_id = ? AND user_id = ? AND number = ANY(?)`
+              : `DELETE FROM bets WHERE game_id = ? AND user_id = ?`;
+            const deleteParams = numbersToDelete
+              ? [prow.game_id, userId, numbersToDelete]
+              : [prow.game_id, userId];
+
+            db.run(deleteQuery, deleteParams, function (delErr) {
+              if (delErr) console.warn('Failed to delete bet records:', delErr.message);
+              db.run(
+                'UPDATE games SET players = GREATEST(players - ?, 0) WHERE game_id = ?',
+                [toRemove.length, prow.game_id],
+                function (gErr) {
+                  if (gErr) console.warn('Failed to decrement games.players:', gErr.message);
+                  db.get(`SELECT * FROM ${t} WHERE id = ?`, [prow.id], (finalErr, finalRow) => {
+                    if (finalErr) return reject(finalErr);
+                    resolve({ table: t, gameId: prow.game_id, row: finalRow, removedCount: toRemove.length });
+                  });
+                }
+              );
+            });
           }
         );
       });

@@ -1,6 +1,20 @@
 const db = require('../config/database');
 const { normalizeAmount, prefixForAmount } = require('../config/amounts');
 
+// PostgreSQL-compatible next game ID lookup using LIKE prefix + CAST
+function getNextGameId(prefix, callback) {
+  db.get(
+    `SELECT MAX(CAST(SUBSTRING(game_id, 2) AS INTEGER)) AS "maxId"
+     FROM games WHERE game_id LIKE '${prefix}%'`,
+    [],
+    (err, row) => {
+      if (err) return callback(err);
+      const nextId = (row && Number(row.maxId) ? Number(row.maxId) : 0) + 1;
+      callback(null, `${prefix}${nextId}`);
+    }
+  );
+}
+
 function createNextRound(gameId, callback) {
   db.get('SELECT amount FROM games WHERE game_id = ?', [gameId], (gameError, game) => {
     if (gameError) return callback(gameError);
@@ -11,31 +25,24 @@ function createNextRound(gameId, callback) {
       return callback(error);
     }
     const prefix = prefixForAmount(amount);
-
     const table = `amount_${amount}`;
-    db.get(
-      `SELECT MAX(CAST(SUBSTRING(game_id FROM 2) AS INTEGER)) AS "maxId"
-       FROM games WHERE game_id ~ '^${prefix}[0-9]+$'`,
-      [],
-      (maxError, maxRow) => {
-        if (maxError) return callback(maxError);
-        const nextId = (maxRow && Number(maxRow.maxId) ? Number(maxRow.maxId) : 0) + 1;
-        const nextGameId = `${prefix}${nextId}`;
-        db.run(
-          'INSERT INTO games (game_id, amount, players, status) VALUES (?, ?, 0, ?)',
-          [nextGameId, amount, 'waiting'],
-          (insertGameError) => {
-            if (insertGameError) return callback(insertGameError);
-            db.run(
-              `INSERT INTO ${table} (game_id, total_players, mark, payout, owner, winner_id)
-               VALUES (?, 0, NULL, 0, NULL, NULL)`,
-              [nextGameId],
-              (insertRoundError) => callback(insertRoundError, nextGameId)
-            );
-          }
-        );
-      }
-    );
+
+    getNextGameId(prefix, (maxError, nextGameId) => {
+      if (maxError) return callback(maxError);
+      db.run(
+        'INSERT INTO games (game_id, amount, players, status) VALUES (?, ?, 0, ?)',
+        [nextGameId, amount, 'waiting'],
+        (insertGameError) => {
+          if (insertGameError) return callback(insertGameError);
+          db.run(
+            `INSERT INTO ${table} (game_id, total_players, mark, payout, owner, winner_id)
+             VALUES (?, 0, NULL, 0, NULL, NULL)`,
+            [nextGameId],
+            (insertRoundError) => callback(insertRoundError, nextGameId)
+          );
+        }
+      );
+    });
   });
 }
 
@@ -51,6 +58,8 @@ function generateSequence() {
 
 /**
  * Generate a fresh 75-number draw for a game, reset draw_index to 0.
+ * The draw_sequence and draw_index columns are defined in the schema —
+ * no runtime ALTER TABLE needed.
  */
 function generateDraw(gameId, callback) {
   if (!gameId) return callback(new Error('Missing gameId'));
@@ -58,28 +67,24 @@ function generateDraw(gameId, callback) {
   const sequence = generateSequence();
   const seqJson  = JSON.stringify(sequence);
 
-  db.serialize(() => {
-    // Migration-safe: add columns if they don't exist yet
-    db.run(`ALTER TABLE games ADD COLUMN IF NOT EXISTS draw_sequence TEXT`,           () => {});
-    db.run(`ALTER TABLE games ADD COLUMN IF NOT EXISTS draw_index INTEGER DEFAULT 0`, () => {});
-
-    db.run(
-      `UPDATE games SET draw_sequence = ?, draw_index = 0 WHERE game_id = ?`,
-      [seqJson, gameId],
-      function (err) {
-        if (err) return callback(err);
-        if (this.changes === 0) {
-          db.run(
-            `INSERT OR IGNORE INTO games (game_id, draw_sequence, draw_index) VALUES (?, ?, 0)`,
-            [gameId, seqJson],
-            (ie) => callback(ie, sequence)
-          );
-        } else {
-          callback(null, sequence);
-        }
+  db.run(
+    `UPDATE games SET draw_sequence = ?, draw_index = 0 WHERE game_id = ?`,
+    [seqJson, gameId],
+    function (err) {
+      if (err) return callback(err);
+      if (this.changes === 0) {
+        // game row doesn't exist yet — insert it
+        db.run(
+          `INSERT INTO games (game_id, draw_sequence, draw_index) VALUES (?, ?, 0)
+           ON CONFLICT (game_id) DO UPDATE SET draw_sequence = EXCLUDED.draw_sequence, draw_index = 0`,
+          [gameId, seqJson],
+          (ie) => callback(ie, sequence)
+        );
+      } else {
+        callback(null, sequence);
       }
-    );
-  });
+    }
+  );
 }
 
 /**
