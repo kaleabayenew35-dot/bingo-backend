@@ -17,6 +17,20 @@ function normalizePhone(phone) {
   return clean;
 }
 
+function entryPhoneFromMark(entry) {
+  const colonIdx = entry.indexOf(':');
+  if (colonIdx === -1) return '';
+  const beforeColon = entry.slice(0, colonIdx);
+  const pipeIdx = beforeColon.indexOf('|');
+  return pipeIdx !== -1 ? beforeColon.slice(pipeIdx + 1) : beforeColon;
+}
+
+function entryNumbersFromMark(entry) {
+  const colonIdx = entry.indexOf(':');
+  if (colonIdx === -1) return [];
+  return entry.slice(colonIdx + 1).split('|').map(Number).filter(Boolean);
+}
+
 /** Insert one row into bets table per number */
 function insertBetRows(userId, gameId, numbers, amount, callback) {
   if (!numbers || numbers.length === 0) return callback(null);
@@ -191,11 +205,24 @@ function placeBet(amount, payload) {
                 }
               );
             } else {
-              // game row exists — append new mark entry for this player
-              const newTotal = (prow.total_players || 0) + 1;
-              const newMark = prow.mark && prow.mark.length
-                ? `${prow.mark},${markEntry}`
-                : markEntry;
+              // game row exists — merge this player's numbers into their existing entry if present
+              const existingEntries = (prow.mark || '').split(',').map((entry) => entry.trim()).filter(Boolean);
+              let playerAlreadyHasEntry = false;
+              const mergedEntries = existingEntries.map((entry) => {
+                const entryPhone = entryPhoneFromMark(entry);
+                if (normalizePhone(entryPhone) !== canonicalPhone) return entry;
+                playerAlreadyHasEntry = true;
+                const mergedNumbers = [...new Set([...entryNumbersFromMark(entry), ...numbers])];
+                const usernameLabel = entry.includes('|') ? entry.split('|')[0] : (username || uid);
+                return `${usernameLabel}|${canonicalPhone}:${mergedNumbers.join('|')}`;
+              });
+
+              if (!playerAlreadyHasEntry) {
+                mergedEntries.push(`${username || uid}|${canonicalPhone}:${numbers.join('|')}`);
+              }
+
+              const newTotal = (prow.total_players || 0) + (playerAlreadyHasEntry ? 0 : 1);
+              const newMark = mergedEntries.join(',');
 
               db.run(
                 `UPDATE ${t} SET total_players = ?, mark = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -203,8 +230,8 @@ function placeBet(amount, payload) {
                 function (upErr) {
                   if (upErr) return reject(upErr);
                   db.run(
-                    'UPDATE games SET players = players + 1 WHERE game_id = ?',
-                    [prow.game_id],
+                    'UPDATE games SET players = players + ? WHERE game_id = ?',
+                    [playerAlreadyHasEntry ? 0 : 1, prow.game_id],
                     function (gupErr) {
                       if (gupErr) console.warn('Failed to update games.players:', gupErr.message);
                       // Insert one bets row per number

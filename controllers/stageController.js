@@ -255,6 +255,7 @@ async function cancelBet(req, res, next) {
       gameId: result.gameId,
       refundAmount,
       newBalance,
+      remainingMark: result?.row?.mark || null,
       result,
     });
   } catch (err) {
