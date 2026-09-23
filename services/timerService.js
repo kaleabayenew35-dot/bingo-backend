@@ -3,11 +3,27 @@
  * Manages one server-side countdown timer per bet amount.
  * Each timer runs continuously and resets automatically when it reaches 0.
  *
- * Timer duration (seconds):
- * All amounts use the same round duration.
+ * Each amount has its own round duration. Every player on the same amount
+ * reads the same endsAt value, so their countdowns stay synchronized.
  */
 
 const { AMOUNTS, normalizeAmount } = require('../config/amounts');
+
+const DEFAULT_DURATIONS = Object.freeze({
+  10: 60,
+  20: 90,
+  30: 120,
+  50: 150,
+  100: 180,
+  200: 240,
+});
+
+function durationForAmount(amount) {
+  const configured = Number(process.env[`BINGO_TIMER_SECONDS_${amount}`]);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_DURATIONS[amount];
+}
 
 // Map key: amount value: { amount, duration, endsAt (ms epoch) }
 const timers = new Map();
@@ -18,7 +34,7 @@ function timerKey(amount) {
 
 function initTimers() {
   AMOUNTS.forEach((a) => {
-    const duration = 60;
+    const duration = durationForAmount(a);
     const endsAt = Date.now() + duration * 1000;
     timers.set(timerKey(a), { amount: a, duration, endsAt });
   });

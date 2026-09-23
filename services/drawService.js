@@ -64,25 +64,51 @@ function generateSequence() {
 function generateDraw(gameId, callback) {
   if (!gameId) return callback(new Error('Missing gameId'));
 
-  const sequence = generateSequence();
-  const seqJson  = JSON.stringify(sequence);
-
-  db.run(
-    `UPDATE games SET draw_sequence = ?, draw_index = 0 WHERE game_id = ?`,
-    [seqJson, gameId],
-    function (err) {
-      if (err) return callback(err);
-      if (this.changes === 0) {
-        // game row doesn't exist yet — insert it
-        db.run(
-          `INSERT INTO games (game_id, draw_sequence, draw_index) VALUES (?, ?, 0)
-           ON CONFLICT (game_id) DO UPDATE SET draw_sequence = EXCLUDED.draw_sequence, draw_index = 0`,
-          [gameId, seqJson],
-          (ie) => callback(ie, sequence)
-        );
-      } else {
-        callback(null, sequence);
+  // Multiple players reach the game at the same time. Reuse an existing
+  // sequence so one browser cannot overwrite another browser's draw.
+  db.get(
+    'SELECT draw_sequence, draw_index FROM games WHERE game_id = ?',
+    [gameId],
+    (readError, existingGame) => {
+      if (readError) return callback(readError);
+      if (existingGame?.draw_sequence) {
+        try {
+          return callback(null, JSON.parse(existingGame.draw_sequence));
+        } catch (parseError) {
+          return callback(parseError);
+        }
       }
+
+      const sequence = generateSequence();
+      const seqJson = JSON.stringify(sequence);
+
+      db.run(
+        `UPDATE games SET draw_sequence = ?, draw_index = 0
+         WHERE game_id = ? AND draw_sequence IS NULL`,
+        [seqJson, gameId],
+        function (err) {
+          if (err) return callback(err);
+          if (this.changes > 0) {
+            callback(null, sequence);
+            return;
+          }
+
+          // Another player initialized this game first; return that sequence.
+          db.get(
+            'SELECT draw_sequence FROM games WHERE game_id = ?',
+            [gameId],
+            (finalError, finalGame) => {
+              if (finalError) return callback(finalError);
+              if (!finalGame?.draw_sequence) return callback(new Error('Game not found'));
+              try {
+                callback(null, JSON.parse(finalGame.draw_sequence));
+              } catch (parseError) {
+                callback(parseError);
+              }
+            }
+          );
+        }
+      );
     }
   );
 }
