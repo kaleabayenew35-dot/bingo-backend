@@ -48,9 +48,10 @@ function updatePlayerBalance(userId, newBalance, callback) {
 /** Update the player's local balance by phone number */
 function updatePlayerBalanceByPhone(phone, newBalance, callback) {
   if (newBalance == null) return callback(null);
+  const canonicalPhone = normalizePhone(phone) || phone;
   db.run(
     'UPDATE players SET balance = ? WHERE phone = ? OR user_id = ?',
-    [newBalance, phone, phone],
+    [newBalance, canonicalPhone, canonicalPhone],
     callback
   );
 }
@@ -95,8 +96,8 @@ function placeBet(amount, payload) {
     db.serialize(() => {
       // ensure player record exists
       db.get(
-        'SELECT user_id FROM players WHERE phone = ? OR phone = ? OR user_id = ? OR user_id = ? LIMIT 1',
-        [canonicalPhone, phone, canonicalPhone, phone],
+        'SELECT user_id FROM players WHERE phone = ? OR user_id = ? LIMIT 1',
+        [canonicalPhone, canonicalPhone],
         (err, row) => {
           if (err) return reject(err);
 
@@ -108,8 +109,8 @@ function placeBet(amount, payload) {
               function (pe) {
                 if (pe) return cb(pe);
                 db.get(
-                  'SELECT user_id FROM players WHERE phone = ? OR phone = ? OR user_id = ? OR user_id = ? LIMIT 1',
-                  [canonicalPhone, phone, canonicalPhone, phone],
+                  'SELECT user_id FROM players WHERE phone = ? OR user_id = ? LIMIT 1',
+                  [canonicalPhone, canonicalPhone],
                   (se, srow) => {
                     if (se) return cb(se);
                     return cb(null, srow ? srow.user_id : userId);
@@ -243,8 +244,8 @@ async function cancelBet(amount, phone, numbers) {
 
     if (!phone) return reject(new Error('Missing phone'));
 
-    const userId = phone;
-    const normalizedCallerPhone = normalizePhone(phone);
+    const normalizedCallerPhone = normalizePhone(phone) || phone;
+    const userId = normalizedCallerPhone;
 
     db.serialize(() => {
       db.get(`SELECT * FROM ${t} ORDER BY id DESC LIMIT 1`, [], (err, prow) => {
