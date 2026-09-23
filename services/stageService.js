@@ -105,6 +105,8 @@ function placeBet(amount, payload) {
     }
 
     const canonicalPhone = normalizePhone(phone) || phone;
+    const uniqueNumbers = [...new Set(numbers.map(Number).filter(Number.isInteger))];
+    if (uniqueNumbers.length === 0) return reject(new Error('numbers must contain valid values'));
     const userId = canonicalPhone; // phone is used as user_id, but canonicalized to avoid collisions
 
     db.serialize(() => {
@@ -151,7 +153,7 @@ function placeBet(amount, payload) {
                   if (!takenNumbers.includes(n)) takenNumbers.push(n);
                 });
               });
-              const conflict = numbers.filter((n) => takenNumbers.includes(n));
+              const conflict = uniqueNumbers.filter((n) => takenNumbers.includes(n));
               if (conflict.length > 0) {
                 return reject(Object.assign(
                   new Error(`Number${conflict.length > 1 ? 's' : ''} ${conflict.join(', ')} already taken`),
@@ -161,7 +163,7 @@ function placeBet(amount, payload) {
             }
 
             // build new mark entry for this bet: "username|phone:num1|num2"
-            const markEntry = `${username || uid}|${uid}:${numbers.join('|')}`;
+            const markEntry = `${username || uid}|${canonicalPhone}:${uniqueNumbers.join('|')}`;
 
             if (!prow) {
               // no game row yet — create first game + first row
@@ -187,7 +189,7 @@ function placeBet(amount, payload) {
                           if (irErr) return reject(irErr);
                           const rowId = this.lastID;
                           // Insert one bets row per number
-                          insertBetRows(uid, gameId, numbers, normalizedAmount, (bErr) => {
+                            insertBetRows(uid, gameId, uniqueNumbers, normalizedAmount, (bErr) => {
                             if (bErr) console.warn('bets insert warning:', bErr.message);
                             // Update player balance
                             updatePlayerBalance(uid, balance, (balErr) => {
@@ -212,13 +214,13 @@ function placeBet(amount, payload) {
                 const entryPhone = entryPhoneFromMark(entry);
                 if (normalizePhone(entryPhone) !== canonicalPhone) return entry;
                 playerAlreadyHasEntry = true;
-                const mergedNumbers = [...new Set([...entryNumbersFromMark(entry), ...numbers])];
+                const mergedNumbers = [...new Set([...entryNumbersFromMark(entry), ...uniqueNumbers])];
                 const usernameLabel = entry.includes('|') ? entry.split('|')[0] : (username || uid);
                 return `${usernameLabel}|${canonicalPhone}:${mergedNumbers.join('|')}`;
               });
 
               if (!playerAlreadyHasEntry) {
-                mergedEntries.push(`${username || uid}|${canonicalPhone}:${numbers.join('|')}`);
+                mergedEntries.push(`${username || uid}|${canonicalPhone}:${uniqueNumbers.join('|')}`);
               }
 
               const newTotal = (prow.total_players || 0) + (playerAlreadyHasEntry ? 0 : 1);
@@ -235,7 +237,7 @@ function placeBet(amount, payload) {
                     function (gupErr) {
                       if (gupErr) console.warn('Failed to update games.players:', gupErr.message);
                       // Insert one bets row per number
-                      insertBetRows(uid, prow.game_id, numbers, normalizedAmount, (bErr) => {
+                      insertBetRows(uid, prow.game_id, uniqueNumbers, normalizedAmount, (bErr) => {
                         if (bErr) console.warn('bets insert warning:', bErr.message);
                         // Update player balance in local DB
                         updatePlayerBalance(uid, balance, (balErr) => {
@@ -304,33 +306,42 @@ async function cancelBet(amount, phone, numbers) {
           return normalizePhone(entryPhone(entry)) === normalizedCallerPhone;
         }
 
-        let toRemove = [];
+        let removedNumberCount = 0;
+        let removedPlayerCount = 0;
         let remaining = [];
         let numbersToDelete = null; // null means delete all for user
 
         if (numbers && Array.isArray(numbers) && numbers.length > 0) {
-          const sortedTarget = [...numbers].map(Number).sort((a, b) => a - b).join('|');
-          // match entries that belong to this phone AND whose numbers match
-          toRemove = parts.filter((p) => {
-            if (!isOwnEntry(p)) return false; // HARD GUARD: own entries only
-            const sorted = entryNums(p).sort((a, b) => a - b).join('|');
-            return sorted === sortedTarget;
-          });
-          remaining = parts.filter((p) => !toRemove.includes(p));
-          if (toRemove.length === 0) return reject(new Error('Matching bet entry not found'));
-          // Only delete these specific numbers from the bets table
-          numbersToDelete = numbers.map(Number);
+          numbersToDelete = [...new Set(numbers.map(Number).filter(Number.isInteger))];
+          remaining = parts.map((entry) => {
+            if (!isOwnEntry(entry)) return entry;
+            const entryNumbers = entryNums(entry);
+            const numbersToRemove = entryNumbers.filter((number) => numbersToDelete.includes(number));
+            if (numbersToRemove.length === 0) return entry;
+
+            removedNumberCount += numbersToRemove.length;
+            const keptNumbers = entryNumbers.filter((number) => !numbersToDelete.includes(number));
+            if (keptNumbers.length === 0) {
+              removedPlayerCount += 1;
+              return null;
+            }
+            const colonIdx = entry.indexOf(':');
+            return `${entry.slice(0, colonIdx)}:${keptNumbers.join('|')}`;
+          }).filter(Boolean);
+          if (removedNumberCount === 0) return reject(new Error('Matching bet entry not found'));
         } else {
           // cancel ALL entries belonging to this phone only
-          toRemove = parts.filter((p) => isOwnEntry(p));
+          const ownEntries = parts.filter((p) => isOwnEntry(p));
+          if (ownEntries.length === 0) return reject(new Error('User has not placed a bet'));
+          removedPlayerCount = ownEntries.length;
+          removedNumberCount = ownEntries.reduce((total, entry) => total + entryNums(entry).length, 0);
           remaining = parts.filter((p) => !isOwnEntry(p));
-          if (toRemove.length === 0) return reject(new Error('User has not placed a bet'));
           // Delete ALL bets for this user in this game
           numbersToDelete = null;
         }
 
         const newMark = remaining.join(',');
-        const newTotal = Math.max(0, (prow.total_players || toRemove.length) - toRemove.length);
+        const newTotal = Math.max(0, (prow.total_players || removedPlayerCount) - removedPlayerCount);
 
         db.run(
           `UPDATE ${t} SET total_players = ?, mark = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -350,12 +361,12 @@ async function cancelBet(amount, phone, numbers) {
               if (delErr) console.warn('Failed to delete bet records:', delErr.message);
               db.run(
                 'UPDATE games SET players = GREATEST(players - ?, 0) WHERE game_id = ?',
-                [toRemove.length, prow.game_id],
+                [removedPlayerCount, prow.game_id],
                 function (gErr) {
                   if (gErr) console.warn('Failed to decrement games.players:', gErr.message);
                   db.get(`SELECT * FROM ${t} WHERE id = ?`, [prow.id], (finalErr, finalRow) => {
                     if (finalErr) return reject(finalErr);
-                    resolve({ table: t, gameId: prow.game_id, row: finalRow, removedCount: toRemove.length });
+                    resolve({ table: t, gameId: prow.game_id, row: finalRow, removedCount: removedNumberCount });
                   });
                 }
               );
