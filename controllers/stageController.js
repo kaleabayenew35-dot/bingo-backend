@@ -3,7 +3,7 @@ const amountService = require('../services/stageService');
 const SYSTEM_BACKEND_URL = (
   process.env.SYSTEM_BACKEND_API_URL ||
   process.env.SYSTEM_BACKEND_URL ||
-  'https://system-backend-1u5m.onrender.com'
+  'https://system-backend-ruby.vercel.app/'
 ).replace(/\/$/, '');
 
 // The bingo game token registered in the system backend game_tokens table
